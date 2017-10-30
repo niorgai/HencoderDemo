@@ -8,10 +8,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Camera;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.Path;
 import android.graphics.Point;
-import android.graphics.RectF;
-import android.graphics.Region;
 import android.support.annotation.Nullable;
 import android.util.AttributeSet;
 import android.view.View;
@@ -35,8 +32,6 @@ public class FlipBoardView extends View {
     private int rightDegree;
     private ValueAnimator mSweepAnimator;
     private int sweep;
-    private RectF sweepRectF;
-    private Path sweepPath;
     private ValueAnimator mTopDegreeAnimator;
     private int topDegree;
 
@@ -87,7 +82,7 @@ public class FlipBoardView extends View {
         });
         mRightDegreeAnimator.start();
 
-        mSweepAnimator = ValueAnimator.ofInt(270, 0)
+        mSweepAnimator = ValueAnimator.ofInt(0, 270)
                 .setDuration(DURATION_TWO);
         mSweepAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
         mSweepAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
@@ -150,9 +145,6 @@ public class FlipBoardView extends View {
 
             }
         });
-
-        sweepPath = new Path();
-        sweepRectF = new RectF(0, 0, getWidth(), getHeight());
     }
 
     @Override
@@ -166,6 +158,9 @@ public class FlipBoardView extends View {
         mCenterPoint.x = centerX - bitmapWidth / 2;
         mCenterPoint.y = centerY - bitmapHeight / 2;
 
+        /**
+         * 第一部分动画, 左边不变的直接画, 右边用 camera 做三维旋转
+         */
         if (mRightDegreeAnimator.isRunning()) {
 
             //左边
@@ -187,29 +182,39 @@ public class FlipBoardView extends View {
             canvas.restore();
         }
 
+        /**
+         * 中间部分, 先移动 canvas 到 camera 原点,  然后旋转 canvas, 再利用 camera 做三维旋转, 最后旋转回来, 再平移回来.
+         * 这样不会导致 动画部分与不动部分 错位, 如果单纯用 clipPath , 移动 path 则会错位.
+         */
         if (mSweepAnimator.isRunning()) {
+            //这部分动画需要先旋转 canvas
+            //不变的部分
             canvas.save();
-            sweepPath.reset();
-            sweepRectF.set(0, 0, getWidth(), getHeight());
-            sweepPath.addArc(sweepRectF, sweep, 180);
-            sweepPath.lineTo(centerX, centerY);
-            sweepPath.close();
-            canvas.clipPath(sweepPath, Region.Op.DIFFERENCE);
+            canvas.translate(centerX, centerY);
+            canvas.rotate(-sweep);
+            canvas.clipRect(-centerX, -centerY, 0, centerY);    //平移后的坐标
+            canvas.rotate(sweep);
+            canvas.translate(-centerX, -centerY);
             canvas.drawBitmap(mBitmap, mCenterPoint.x, mCenterPoint.y, mPaint);
             canvas.restore();
 
             canvas.save();
-            canvas.clipPath(sweepPath);
-            mCamera.save();
-            mCamera.rotate(getRotateXBySweep(sweep), getRotateYBySweep(sweep), 0);
             canvas.translate(centerX, centerY);
+            canvas.rotate(-sweep);
+            canvas.clipRect(0, -centerY, centerX, centerY);    //平移后的坐标
+            mCamera.save();
+            mCamera.rotateY(-45);
             mCamera.applyToCanvas(canvas);
-            canvas.translate(-centerX, -centerY);
             mCamera.restore();
+            canvas.rotate(sweep);
+            canvas.translate(-centerX, -centerY);
             canvas.drawBitmap(mBitmap, mCenterPoint.x, mCenterPoint.y, mPaint);
             canvas.restore();
         }
 
+        /**
+         * 最后是上下三维旋转
+         */
         if (mTopDegreeAnimator.isRunning()) {
             //上面
             canvas.save();
